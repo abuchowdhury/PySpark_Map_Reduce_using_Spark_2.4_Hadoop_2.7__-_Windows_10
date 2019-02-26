@@ -1,0 +1,157 @@
+https://databricks-prod-cloudfront.cloud.databricks.com/public/4027ec902e239c93eaaa8714f173bcfc/5056952946034469/3114921520194773/5534507292002156/latest.html
+
+# Answer 1  
+# register the df we just made as a table for spark sql 
+result = spark.sql(
+  """
+  SELECT 
+    education, 
+    ROUND(AVG(if(LTRIM(marital_status) = 'Never-married',1,0)),2) as bachelor_rate
+  FROM 
+    adult 
+  where education LIKE '%12%'
+  GROUP BY 1
+  """)
+display(result)
+
+
+
+#Answer 2
+
+### Question 2.1 Answer ###
+
+# wrangle the data a bit
+
+# import what we will need
+from pyspark.sql.functions import when, col, mean, desc, round
+
+# wrangle the data a bit
+df_result = df_adult.select(
+  df_adult['education'], 
+  # create a 1/0 type col on the fly
+  when( col('marital_status') == ' Never-married' , 0 ).otherwise(1).alias('Never-married')
+)
+# do grouping (and a round)
+df_result = df_result.groupBy('education').agg(round(mean('Never-married'),2).alias('bachelor_rate'))
+# do ordering
+df_result = df_result.orderBy(('bachelor_rate'))
+# show results
+df_result.show(1)
+
+
+
+GBM - Train
+Question 3
+Train a GBTClassifier on the training data, call the trained model 'gbModel'
+
+from pyspark.ml.classification import GBTClassifier
+gbt = GBTClassifier(labelCol="label", featuresCol="features", maxIter=10)
+
+# set threshold for the probability above which to predict a 1
+#gbt.setThreshold(training_data_positive_rate)
+# lr.setThreshold(0.5) # could use this if knew you had balanced data
+
+gbModel = gbt.fit(trainingData)
+
+# get training summary used for eval metrics and other params
+#gbTrainingSummary = gbModel.summary
+
+# Find the best model threshold if you would like to use that instead of the empirical positve rate
+#fMeasure = gbTrainingSummary.fMeasureByThreshold
+maxFMeasure = fMeasure.groupBy().max('F-Measure').select('max(F-Measure)').head()
+gbBestThreshold = fMeasure.where(fMeasure['F-Measure'] == maxFMeasure['max(F-Measure)']) \
+    .select('threshold').head()['threshold']
+  
+print("Best threshold based on model performance on training data is {}".format(gbBestThreshold))
+
+### Question 4.1 Answer ###
+
+# make predictions on test data
+gbPredictions = gbModel.transform(testData)
+
+display(gbPredictions)
+
+
+Question 5
+Complete the print_performance_metrics() function below to also include measures of F1, Precision, Recall, False Positive Rate and True Positive Rate.
+
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.mllib.evaluation import BinaryClassificationMetrics, MulticlassMetrics
+
+def print_performance_metrics(predictions):
+  # Evaluate model
+  evaluator = BinaryClassificationEvaluator(rawPredictionCol="rawPrediction")
+  auc = evaluator.evaluate(predictions, {evaluator.metricName: "areaUnderROC"})
+  aupr = evaluator.evaluate(predictions, {evaluator.metricName: "areaUnderPR"})
+  print("auc = {}".format(auc))
+  print("aupr = {}".format(aupr))
+
+  # get rdd of predictions and labels for mllib eval metrics
+  predictionAndLabels = predictions.select("prediction","label").rdd
+
+  # Instantiate metrics objects
+  binary_metrics = BinaryClassificationMetrics(predictionAndLabels)
+  multi_metrics = MulticlassMetrics(predictionAndLabels)
+
+  # Area under precision-recall curve
+  print("Area under PR = {}".format(binary_metrics.areaUnderPR))
+  # Area under ROC curve
+  print("Area under ROC = {}".format(binary_metrics.areaUnderROC))
+  # Accuracy
+  print("Accuracy = {}".format(multi_metrics.accuracy))
+  # Confusion Matrix
+  print(multi_metrics.confusionMatrix())
+  
+  ### Question 5.1 Answer ###
+  
+  # F1
+  print("F1 = {}".format(auc))
+  # Precision
+  print("Precision = {}".format(multi_metrics.accuracy))
+  # Recall
+  print("Recall = {}".format(aupr))
+  # FPR
+  print("FPR = {}".format(binary_metrics.areaUnderPR))
+  # TPR
+  print("TPR = {}".format(binary_metrics.areaUnderROC))
+  
+  
+print_performance_metrics(lrPredictions)
+
+GBM - Param Grid
+Question 6
+Build out a param grid for the gb model, call it 'gbParamGrid'.
+
+### Question 6.1 Answer ###
+
+# Create ParamGrid for Cross Validation
+gbParamGrid = (ParamGridBuilder()
+             .addGrid(gbt.maxDepth, [2, 4, 6])
+             .addGrid(gbt.maxBins, [20, 60])
+             .addGrid(gbt.maxIter, [10, 20])
+             .build())
+
+
+### Question 7.1 Answer ###
+
+# Create CrossValidator
+gbCv = CrossValidator(estimator=gbt, estimatorParamMaps=gbParamGrid, evaluator=evaluator, numFolds=2)
+
+
+# Run cross validations
+gbCvModel = gbCv.fit(trainingData)
+
+### Question 7.2 Answer ###
+
+# look at best params from the CV
+# look at best params from the CV
+print(gbCvModel.bestModel._java_obj.getgbtParam())
+print(gbCvModel.bestModel._java_obj.getElasticNetParam())
+print(gbCvModel.bestModel._java_obj.getMaxIter())
+
+
+Feature Importance
+Question 8
+Print out a table of feature_name and feature_coefficient from the Logistic Regression model. 
+
+Hint: Adapt the code from here: https://stackoverflow.com/questions/42935914/how-to-map-features-from-the-output-of-a-vectorassembler-back-to-the-column-name

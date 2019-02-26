@@ -1,0 +1,7 @@
+C:\Users\achow\Anaconda3\pkgs\pyspark-2.4.0-py36_0.tar.bz2
+C:\Users\achow\Anaconda3\pkgs\py4j-0.10.7-py36_0.tar.bz2
+
+PYTHONPATH=$SPARK_HOME/python/lib/py4j-0.9-src.zip:$PYTHONPATH
+PYTHONPATH=$SPARK_HOME/python/:$PYTHONPATH
+
+C:\spark-2.4.0-bin-hadoop2.7
